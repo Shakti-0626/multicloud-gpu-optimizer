@@ -16,13 +16,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.File;
 import java.io.FileReader;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 
 @Component
@@ -57,15 +60,46 @@ public class DataSeederRunner implements CommandLineRunner {
         log.info("DataSeederRunner completed. Database is primed with GPU catalog and egress rates.");
     }
 
+    private Reader openReader(String configuredPath, String filename) {
+        // 1. Check classpath (inside JAR)
+        try {
+            ClassPathResource cpr = new ClassPathResource("data/" + filename);
+            if (cpr.exists()) {
+                log.info("Found {} in classpath resources: data/{}", filename, filename);
+                return new InputStreamReader(cpr.getInputStream(), StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            log.debug("Classpath lookup for data/{} failed: {}", filename, e.getMessage());
+        }
+
+        // 2. Check filesystem paths
+        File file = resolveFile(configuredPath, filename);
+        if (file != null && file.exists()) {
+            try {
+                log.info("Found {} in filesystem: {}", filename, file.getAbsolutePath());
+                return new FileReader(file, StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                log.warn("Failed to open file {}: {}", file.getAbsolutePath(), e.getMessage());
+            }
+        }
+
+        return null;
+    }
+
     private File resolveFile(String configuredPath, String fallbackName) {
-        File file = new File(configuredPath);
-        if (file.exists()) return file;
+        if (configuredPath != null && !configuredPath.isBlank()) {
+            File file = new File(configuredPath);
+            if (file.exists()) return file;
+        }
 
         File direct = new File(fallbackName);
         if (direct.exists()) return direct;
 
         File inData = new File("data/" + fallbackName);
         if (inData.exists()) return inData;
+
+        File inBackendData = new File("backend/data/" + fallbackName);
+        if (inBackendData.exists()) return inBackendData;
 
         File upData = new File("../data/" + fallbackName);
         if (upData.exists()) return upData;
@@ -74,13 +108,13 @@ public class DataSeederRunner implements CommandLineRunner {
     }
 
     private void seedPrices() {
-        File file = resolveFile(pricesCsvPath, "prices.csv");
-        if (file == null) {
-            log.warn("prices.csv could not be found at configured path: {}", pricesCsvPath);
+        Reader reader = openReader(pricesCsvPath, "prices.csv");
+        if (reader == null) {
+            log.warn("prices.csv could not be located on classpath or filesystem.");
             return;
         }
 
-        try (Reader reader = new FileReader(file);
+        try (reader;
              CSVParser csvParser = new CSVParser(reader, CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).setTrim(true).build())) {
 
             for (CSVRecord record : csvParser) {
@@ -127,13 +161,13 @@ public class DataSeederRunner implements CommandLineRunner {
     }
 
     private void seedEgress() {
-        File file = resolveFile(egressCsvPath, "egress.csv");
-        if (file == null) {
-            log.warn("egress.csv could not be found at configured path: {}", egressCsvPath);
+        Reader reader = openReader(egressCsvPath, "egress.csv");
+        if (reader == null) {
+            log.warn("egress.csv could not be located on classpath or filesystem.");
             return;
         }
 
-        try (Reader reader = new FileReader(file);
+        try (reader;
              CSVParser csvParser = new CSVParser(reader, CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).setTrim(true).build())) {
 
             for (CSVRecord record : csvParser) {

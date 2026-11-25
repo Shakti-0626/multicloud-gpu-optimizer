@@ -10,8 +10,5 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
-COPY data /data
-ENV PRICES_PATH=/data/prices.csv
-ENV EGRESS_PATH=/data/egress.csv
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
