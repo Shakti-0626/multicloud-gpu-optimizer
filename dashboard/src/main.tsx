@@ -5,8 +5,9 @@ import App from './App';
 import './index.css';
 
 // Support production backend deployment (Render/Vercel)
-if (import.meta.env.VITE_API_URL) {
-  axios.defaults.baseURL = import.meta.env.VITE_API_URL;
+const apiUrl = (import.meta as any).env?.VITE_API_URL;
+if (apiUrl) {
+  axios.defaults.baseURL = apiUrl;
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
