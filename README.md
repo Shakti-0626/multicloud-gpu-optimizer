@@ -1,13 +1,14 @@
-# Multicloud Optimization System for AI Workloads
+# Carbon-Aware Multicloud Optimization for AI Workloads
 
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![Green AI](https://img.shields.io/badge/Green_AI-Carbon--Aware-emerald.svg)](https://greensoftware.foundation/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org/)
 [![OR-Tools](https://img.shields.io/badge/Google_OR--Tools-CP--SAT-yellow.svg)](https://developers.google.com/optimization)
 [![React](https://img.shields.io/badge/React-18-blue.svg)](https://react.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-cyan.svg)](https://tailwindcss.com/)
 
-A decision-layer and workload scheduler that determines the mathematically cheapest cloud, region, and GPU instance for AI jobs across **AWS**, **GCP**, and **Azure**, validating cost savings via Integer Linear Programming (ILP) and multi-scenario simulations.
+A sustainable decision-layer and workload scheduler that determines the mathematically optimal and carbon-conscious cloud, region, and GPU instance for AI workloads across **AWS**, **GCP**, and **Azure**, balancing compute spend, cross-cloud egress tariffs, spot interruption risk, and regional electric grid carbon intensity ($g\text{CO}_2/\text{kWh}$).
 
 ---
 
@@ -31,12 +32,13 @@ A decision-layer and workload scheduler that determines the mathematically cheap
 
 ### Part 1: Backend System
 - **Java 21 & Spring Boot 3**: High-performance REST API.
-- **Mathematical Cost Model**:
+- **Mathematical Cost & Carbon Model**:
   $$C_{\text{total}} = C_{\text{compute}} + C_{\text{egress}} + C_{\text{interrupt}}$$
+  $$\text{Carbon Emitted (kg CO}_2\text{e)} = \frac{E_{\text{energy}} \times I_{\text{grid}}}{1000} = \frac{(N_{\text{gpu}} \times P_{\text{tdp}} \times T_{\text{eff}} \times \text{PUE}) \times I_{\text{grid}}}{1000}$$
   - Compute: $n_o \times \text{hourly\_price} \times T_j$ with instance count rounding $\lceil g_j / g_o \rceil$.
   - Egress: Cross-cloud data transfer cost (0 if intra-region).
   - Risk Penalty: $p_o \times r \times C_{\text{compute}}$ ($r = 0.10$ with checkpointing, $0.50$ without).
-  - Completion Time Feasibility: Includes queue time, transfer time over 1 Gbps, and expected re-compute overhead.
+  - Carbon Impact: Maps regional grid carbon intensity ($I_{\text{grid}}$ in $g\text{CO}_2/\text{kWh}$) to identify clean-energy regions (e.g. hydro-powered `us-west-2` vs fossil-heavy `us-east-1`).
 - **Solvers**:
   - **Greedy Optimizer**: Single-job instantaneous ranking & single-cloud baseline calculation.
   - **ILP Optimizer (Google OR-Tools CP-SAT)**: Multi-job batch scheduling with regional GPU capacity constraints.

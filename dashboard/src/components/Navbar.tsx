@@ -1,12 +1,12 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Cpu, Layers, BarChart3, Database } from 'lucide-react';
+import { Cpu, Layers, BarChart3, Database, Leaf } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const linkClasses = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
       isActive
-        ? 'bg-indigo-600 text-white shadow-sm'
+        ? 'bg-emerald-600 text-white shadow-sm'
         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
     }`;
 
@@ -14,14 +14,20 @@ export const Navbar: React.FC = () => {
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-700 flex items-center justify-center text-white shadow-md">
-            <Cpu className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 via-teal-600 to-indigo-700 flex items-center justify-center text-white shadow-md">
+            <Leaf className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-slate-900 leading-tight">
-              Multicloud GPU Optimizer
-            </h1>
-            <p className="text-xs text-slate-500">AWS • GCP • Azure AI Workloads</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-bold text-slate-900 leading-tight">
+                Carbon-Aware Multicloud Optimizer
+              </h1>
+              <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <Leaf className="w-2.5 h-2.5 text-emerald-600" />
+                Green AI
+              </span>
+            </div>
+            <p className="text-xs text-slate-500">Sustainable AI Workload Placement • AWS • GCP • Azure</p>
           </div>
         </div>
 

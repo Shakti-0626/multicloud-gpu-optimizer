@@ -3,7 +3,36 @@ import axios from 'axios';
 import { RecommendationResponse, JobFormData } from '../types';
 import { CloudBadge } from '../components/CloudBadge';
 import { CostBreakdownBar } from '../components/CostBreakdownBar';
-import { Sparkles, ArrowRight, ShieldCheck, Clock, HardDrive, DollarSign, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Sparkles, ArrowRight, ShieldCheck, Clock, HardDrive, DollarSign, AlertCircle, CheckCircle2, Leaf } from 'lucide-react';
+
+const calculateCarbonFootprint = (gpuModel: string, gpuCount: number, durationHours: number, region: string) => {
+  const tdpMap: Record<string, number> = {
+    H100: 0.70,
+    A100: 0.40,
+    A10G: 0.30,
+    L4: 0.075,
+    T4: 0.07,
+  };
+  const intensityMap: Record<string, { intensity: number; label: string; isLow: boolean }> = {
+    'us-west-2': { intensity: 90, label: 'Hydro/Clean Grid', isLow: true },
+    'europe-north1': { intensity: 30, label: '100% Renewable', isLow: true },
+    'swedencentral': { intensity: 25, label: '100% Carbon-Free', isLow: true },
+    'us-central1': { intensity: 320, label: 'Wind-Blended Grid', isLow: false },
+    'us-east-1': { intensity: 415, label: 'Standard Grid', isLow: false },
+    'eastus': { intensity: 380, label: 'Standard Grid', isLow: false },
+  };
+  const tdp = tdpMap[gpuModel] || 0.35;
+  const pue = 1.15;
+  const energyKwh = gpuCount * tdp * (durationHours || 1) * pue;
+  const grid = intensityMap[region] || { intensity: 350, label: 'Regional Grid', isLow: false };
+  const kgCo2 = (energyKwh * grid.intensity) / 1000;
+  return {
+    energyKwh: energyKwh.toFixed(1),
+    kgCo2: kgCo2.toFixed(1),
+    gridLabel: grid.label,
+    isLowCarbon: grid.isLow,
+  };
+};
 
 export const RecommendPage: React.FC = () => {
   const [formData, setFormData] = useState<JobFormData>({
@@ -303,6 +332,38 @@ export const RecommendPage: React.FC = () => {
                       total={topPick.totalCost}
                     />
                   </div>
+
+                  {/* Carbon footprint banner */}
+                  {(() => {
+                    const carbon = calculateCarbonFootprint(
+                      formData.gpuModel,
+                      formData.gpuCount,
+                      topPick.estFinishHours,
+                      topPick.region
+                    );
+                    return (
+                      <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50/80 border border-emerald-200/80 text-xs">
+                        <div className="flex items-center gap-2">
+                          <Leaf className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                          <div>
+                            <span className="font-semibold text-emerald-950">
+                              Carbon-Aware Footprint: ~{carbon.kgCo2} kg CO₂e
+                            </span>
+                            <span className="text-emerald-700 block text-[11px]">
+                              {carbon.energyKwh} kWh energy • Grid: {carbon.gridLabel}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase ${
+                          carbon.isLowCarbon 
+                            ? 'bg-emerald-600 text-white' 
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {carbon.isLowCarbon ? 'Eco-Optimal Grid' : 'Standard Grid'}
+                        </span>
+                      </div>
+                    );
+                  })()}
 
                   {/* Plain language explanation */}
                   <div className="p-4 rounded-xl bg-indigo-50/70 border border-indigo-100 text-xs text-indigo-950 leading-relaxed">
