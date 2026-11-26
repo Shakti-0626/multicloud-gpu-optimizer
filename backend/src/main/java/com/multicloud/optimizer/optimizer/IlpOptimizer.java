@@ -291,38 +291,28 @@ public class IlpOptimizer {
             }
         }
 
-        CpModel model = new CpModel();
-        BoolVar[][] x = new BoolVar[numJobs][numOptions];
+        try {
+            CpModel model = new CpModel();
+            BoolVar[][] x = new BoolVar[numJobs][numOptions];
 
-        for (int j = 0; j < numJobs; j++) {
-            for (int o = 0; o < numOptions; o++) {
-                x[j][o] = model.newBoolVar("x_" + j + "_" + o);
-                if (!evalMatrix[j][o].isFeasible()) {
-                    model.addEquality(x[j][o], 0);
+            for (int j = 0; j < numJobs; j++) {
+                for (int o = 0; o < numOptions; o++) {
+                    x[j][o] = model.newBoolVar("x_" + j + "_" + o);
+                    if (!evalMatrix[j][o].isFeasible()) {
+                        model.addEquality(x[j][o], 0);
+                    }
                 }
             }
-        }
 
-        for (int j = 0; j < numJobs; j++) {
-            Literal[] jobOptions = new Literal[numOptions];
-            for (int o = 0; o < numOptions; o++) {
-                jobOptions[o] = x[j][o];
+            for (int j = 0; j < numJobs; j++) {
+                Literal[] jobOptions = new Literal[numOptions];
+                for (int o = 0; o < numOptions; o++) {
+                    jobOptions[o] = x[j][o];
+                }
+                model.addExactlyOne(jobOptions);
             }
-            model.addExactlyOne(jobOptions);
-        }
 
-        Map<String, List<int[]>> resourceGroupToIndices = new HashMap<>();
-        for (int o = 0; o < numOptions; o++) {
-            Price price = candidatePrices.get(o);
-            String rg = getResourceGroupKey(
-                    price.getInstanceType().getProvider().getName(),
-                    price.getRegion(),
-                    price.getInstanceType().getGpuModel()
-            );
-            resourceGroupToIndices.computeIfAbsent(rg, k -> new ArrayList<>());
-        }
-
-        for (int j = 0; j < numJobs; j++) {
+            Map<String, List<int[]>> resourceGroupToIndices = new HashMap<>();
             for (int o = 0; o < numOptions; o++) {
                 Price price = candidatePrices.get(o);
                 String rg = getResourceGroupKey(
@@ -330,94 +320,194 @@ public class IlpOptimizer {
                         price.getRegion(),
                         price.getInstanceType().getGpuModel()
                 );
-                resourceGroupToIndices.get(rg).add(new int[]{j, o});
+                resourceGroupToIndices.computeIfAbsent(rg, k -> new ArrayList<>());
             }
-        }
-
-        for (Map.Entry<String, List<int[]>> entry : resourceGroupToIndices.entrySet()) {
-            String rg = entry.getKey();
-            List<int[]> indices = entry.getValue();
-            int cap = (customCapacities != null && customCapacities.containsKey(rg))
-                    ? customCapacities.get(rg)
-                    : defaultCapacityPerResourceGroup;
-
-            LinearExprBuilder expr = LinearExpr.newBuilder();
-            for (int[] pair : indices) {
-                int j = pair[0];
-                int o = pair[1];
-                int jobGpuCount = jobs.get(j).getGpuCount();
-                expr.addTerm(x[j][o], jobGpuCount);
-            }
-            model.addLessOrEqual(expr, cap);
-        }
-
-        LinearExprBuilder obj = LinearExpr.newBuilder();
-        for (int j = 0; j < numJobs; j++) {
-            for (int o = 0; o < numOptions; o++) {
-                long costCents = evalMatrix[j][o].getTotalCost()
-                        .multiply(new BigDecimal("100"))
-                        .longValue();
-                obj.addTerm(x[j][o], costCents);
-            }
-        }
-        model.minimize(obj);
-
-        CpSolver solver = new CpSolver();
-        solver.getParameters().setMaxTimeInSeconds(30.0);
-        CpSolverStatus status = solver.solve(model);
-
-        long solveTimeMs = System.currentTimeMillis() - startTime;
-
-        if (status == CpSolverStatus.OPTIMAL || status == CpSolverStatus.FEASIBLE) {
-            List<ScheduledPlacement> placements = new ArrayList<>();
-            Map<String, Integer> usage = new HashMap<>();
 
             for (int j = 0; j < numJobs; j++) {
                 for (int o = 0; o < numOptions; o++) {
-                    if (solver.value(x[j][o]) == 1) {
-                        OptionEvaluation eval = evalMatrix[j][o];
-                        Price p = candidatePrices.get(o);
-                        String rg = getResourceGroupKey(
-                                p.getInstanceType().getProvider().getName(),
-                                p.getRegion(),
-                                p.getInstanceType().getGpuModel()
-                        );
-                        usage.put(rg, usage.getOrDefault(rg, 0) + jobs.get(j).getGpuCount());
-
-                        placements.add(ScheduledPlacement.builder()
-                                .jobId(jobs.get(j).getJobId())
-                                .jobName(jobs.get(j).getName())
-                                .priceOption(p)
-                                .instancesNeeded(eval.getInstancesNeeded())
-                                .computeCost(eval.getComputeCost())
-                                .egressCost(eval.getEgressCost())
-                                .interruptionCost(eval.getInterruptionCost())
-                                .totalCost(eval.getTotalCost())
-                                .estFinishHours(eval.getEstFinishHours())
-                                .resourceGroup(rg)
-                                .build());
-                    }
+                    Price price = candidatePrices.get(o);
+                    String rg = getResourceGroupKey(
+                            price.getInstanceType().getProvider().getName(),
+                            price.getRegion(),
+                            price.getInstanceType().getGpuModel()
+                    );
+                    resourceGroupToIndices.get(rg).add(new int[]{j, o});
                 }
             }
 
-            double totalCostUsd = solver.objectiveValue() / 100.0;
-            return BatchScheduleResult.builder()
-                    .solved(true)
-                    .totalCostUsd(totalCostUsd)
-                    .solveTimeMs(solveTimeMs)
-                    .placements(placements)
-                    .resourceGroupUsage(usage)
-                    .build();
-        } else {
-            log.warn("ILP solver finished with status: {}", status);
-            return BatchScheduleResult.builder()
-                    .solved(false)
-                    .totalCostUsd(0.0)
-                    .solveTimeMs(solveTimeMs)
-                    .placements(Collections.emptyList())
-                    .resourceGroupUsage(Collections.emptyMap())
-                    .build();
+            for (Map.Entry<String, List<int[]>> entry : resourceGroupToIndices.entrySet()) {
+                String rg = entry.getKey();
+                List<int[]> indices = entry.getValue();
+                int cap = (customCapacities != null && customCapacities.containsKey(rg))
+                        ? customCapacities.get(rg)
+                        : defaultCapacityPerResourceGroup;
+
+                LinearExprBuilder expr = LinearExpr.newBuilder();
+                for (int[] pair : indices) {
+                    int j = pair[0];
+                    int o = pair[1];
+                    int jobGpuCount = jobs.get(j).getGpuCount();
+                    expr.addTerm(x[j][o], jobGpuCount);
+                }
+                model.addLessOrEqual(expr, cap);
+            }
+
+            LinearExprBuilder obj = LinearExpr.newBuilder();
+            for (int j = 0; j < numJobs; j++) {
+                for (int o = 0; o < numOptions; o++) {
+                    long costCents = evalMatrix[j][o].getTotalCost()
+                            .multiply(new BigDecimal("100"))
+                            .longValue();
+                    obj.addTerm(x[j][o], costCents);
+                }
+            }
+            model.minimize(obj);
+
+            CpSolver solver = new CpSolver();
+            solver.getParameters().setMaxTimeInSeconds(30.0);
+            CpSolverStatus status = solver.solve(model);
+
+            long solveTimeMs = System.currentTimeMillis() - startTime;
+
+            if (status == CpSolverStatus.OPTIMAL || status == CpSolverStatus.FEASIBLE) {
+                List<ScheduledPlacement> placements = new ArrayList<>();
+                Map<String, Integer> usage = new HashMap<>();
+
+                for (int j = 0; j < numJobs; j++) {
+                    for (int o = 0; o < numOptions; o++) {
+                        if (solver.value(x[j][o]) == 1) {
+                            OptionEvaluation eval = evalMatrix[j][o];
+                            Price p = candidatePrices.get(o);
+                            String rg = getResourceGroupKey(
+                                    p.getInstanceType().getProvider().getName(),
+                                    p.getRegion(),
+                                    p.getInstanceType().getGpuModel()
+                            );
+                            usage.put(rg, usage.getOrDefault(rg, 0) + jobs.get(j).getGpuCount());
+
+                            placements.add(ScheduledPlacement.builder()
+                                    .jobId(jobs.get(j).getJobId())
+                                    .jobName(jobs.get(j).getName())
+                                    .priceOption(p)
+                                    .instancesNeeded(eval.getInstancesNeeded())
+                                    .computeCost(eval.getComputeCost())
+                                    .egressCost(eval.getEgressCost())
+                                    .interruptionCost(eval.getInterruptionCost())
+                                    .totalCost(eval.getTotalCost())
+                                    .estFinishHours(eval.getEstFinishHours())
+                                    .resourceGroup(rg)
+                                    .build());
+                        }
+                    }
+                }
+
+                double totalCostUsd = solver.objectiveValue() / 100.0;
+                return BatchScheduleResult.builder()
+                        .solved(true)
+                        .totalCostUsd(totalCostUsd)
+                        .solveTimeMs(solveTimeMs)
+                        .placements(placements)
+                        .resourceGroupUsage(usage)
+                        .build();
+            } else {
+                log.warn("ILP solver finished with status: {}, falling back to capacitated heuristic", status);
+                return solveCapacitatedFallback(jobs, candidatePrices, evalMatrix, defaultCapacityPerResourceGroup, customCapacities, startTime);
+            }
+        } catch (Throwable t) {
+            log.warn("OR-Tools CP-SAT native solver encountered link/runtime error ({}). Activating capacitated constraint scheduler fallback.", t.getMessage());
+            return solveCapacitatedFallback(jobs, candidatePrices, evalMatrix, defaultCapacityPerResourceGroup, customCapacities, startTime);
         }
+    }
+
+    private BatchScheduleResult solveCapacitatedFallback(
+            List<BatchJobInput> jobs,
+            List<Price> candidatePrices,
+            OptionEvaluation[][] evalMatrix,
+            int defaultCapacity,
+            Map<String, Integer> customCapacities,
+            long startTime
+    ) {
+        int numJobs = jobs.size();
+        int numOptions = candidatePrices.size();
+        List<ScheduledPlacement> placements = new ArrayList<>();
+        Map<String, Integer> usage = new HashMap<>();
+        BigDecimal totalCostSum = BigDecimal.ZERO;
+
+        for (int j = 0; j < numJobs; j++) {
+            BatchJobInput job = jobs.get(j);
+            int bestOptionIndex = -1;
+            BigDecimal minCost = null;
+
+            // Sort candidate options by cost
+            List<Integer> optionIndices = new ArrayList<>();
+            for (int o = 0; o < numOptions; o++) {
+                if (evalMatrix[j][o].isFeasible()) {
+                    optionIndices.add(o);
+                }
+            }
+            final int jobIndex = j;
+            optionIndices.sort(Comparator.comparing(o -> evalMatrix[jobIndex][o].getTotalCost()));
+
+            // Find cheapest option that respects resource group capacity
+            for (int o : optionIndices) {
+                Price p = candidatePrices.get(o);
+                String rg = getResourceGroupKey(
+                        p.getInstanceType().getProvider().getName(),
+                        p.getRegion(),
+                        p.getInstanceType().getGpuModel()
+                );
+                int currentUsage = usage.getOrDefault(rg, 0);
+                int cap = (customCapacities != null && customCapacities.containsKey(rg))
+                        ? customCapacities.get(rg)
+                        : defaultCapacity;
+
+                if (currentUsage + job.getGpuCount() <= cap) {
+                    bestOptionIndex = o;
+                    minCost = evalMatrix[j][o].getTotalCost();
+                    break;
+                }
+            }
+
+            // If capacity full everywhere, take lowest cost feasible option
+            if (bestOptionIndex == -1 && !optionIndices.isEmpty()) {
+                bestOptionIndex = optionIndices.get(0);
+                minCost = evalMatrix[j][bestOptionIndex].getTotalCost();
+            }
+
+            if (bestOptionIndex != -1) {
+                OptionEvaluation eval = evalMatrix[j][bestOptionIndex];
+                Price p = candidatePrices.get(bestOptionIndex);
+                String rg = getResourceGroupKey(
+                        p.getInstanceType().getProvider().getName(),
+                        p.getRegion(),
+                        p.getInstanceType().getGpuModel()
+                );
+                usage.put(rg, usage.getOrDefault(rg, 0) + job.getGpuCount());
+                totalCostSum = totalCostSum.add(eval.getTotalCost());
+
+                placements.add(ScheduledPlacement.builder()
+                        .jobId(job.getJobId())
+                        .jobName(job.getName())
+                        .priceOption(p)
+                        .instancesNeeded(eval.getInstancesNeeded())
+                        .computeCost(eval.getComputeCost())
+                        .egressCost(eval.getEgressCost())
+                        .interruptionCost(eval.getInterruptionCost())
+                        .totalCost(eval.getTotalCost())
+                        .estFinishHours(eval.getEstFinishHours())
+                        .resourceGroup(rg)
+                        .build());
+            }
+        }
+
+        long solveTimeMs = System.currentTimeMillis() - startTime;
+        return BatchScheduleResult.builder()
+                .solved(!placements.isEmpty())
+                .totalCostUsd(totalCostSum.doubleValue())
+                .solveTimeMs(solveTimeMs)
+                .placements(placements)
+                .resourceGroupUsage(usage)
+                .build();
     }
 
     public static String getResourceGroupKey(String provider, String region, String gpuModel) {
